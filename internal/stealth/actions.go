@@ -84,20 +84,6 @@ func HumanClick(page *rod.Page, element *rod.Element) {
 	// Simulate "aiming" before clicking
 	RandomSleep(300, 700)
 
-	// Update cursor to blue before clicking
-	page.MustEval(`(x, y) => {
-		if (window.updateGhostCursor) {
-			window.updateGhostCursor(x, y, 'blue');
-		}
-	}`, x, y)
-
 	// Perform the click
 	page.Mouse.MustClick("left")
-
-	// Update cursor back to red after clicking
-	page.MustEval(`(x, y) => {
-		if (window.updateGhostCursor) {
-			window.updateGhostCursor(x, y, 'red');
-		}
-	}`, x, y)
 }

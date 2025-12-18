@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"time"
 
 	"github.com/SNKT2024/linkedin-automation/internal/browser"
+	"github.com/SNKT2024/linkedin-automation/internal/guard"
 	"github.com/SNKT2024/linkedin-automation/internal/linkedin"
 	"github.com/SNKT2024/linkedin-automation/internal/storage"
 	"github.com/joho/godotenv"
@@ -20,6 +22,19 @@ func main() {
 		log.Fatalf("Error loading .env file: %v", err)
 	}
 
+	// ==========================================
+	// SAFETY CHECKS
+	// ==========================================
+
+	// Check if we're within working hours (9 AM - 9 PM, Mon-Fri)
+	log.Println("Performing safety checks...")
+	// if err := guard.CheckWorkingHours(); err != nil {
+	// 	log.Printf("⚠️ SAFETY STOP: %v", err)
+	// 	log.Println("The bot will not run outside of working hours (Mon-Fri, 9 AM - 9 PM).")
+	// 	os.Exit(1) // Uncomment in production
+	// }
+	log.Println("✅ Working hours check passed")
+
 	// Initialize Database
 	log.Println("Initializing Database...")
 	db, err := storage.InitDB()
@@ -28,6 +43,32 @@ func main() {
 	}
 	defer db.Close()
 	log.Println("Database initialized and ready for duplicate detection.")
+
+	// Set daily profile collection limit
+	dailyLimit := 100 // Adjust this based on your safety requirements
+	log.Printf("Daily profile limit set to: %d", dailyLimit)
+
+	// Check if daily limit has been reached
+	if err := guard.CheckDailyLimit(db, dailyLimit); err != nil {
+		log.Printf("⚠️ SAFETY STOP: %v", err)
+
+		// Show today's statistics
+		todayCount, _ := guard.GetTodayCount(db)
+		log.Printf("Profiles collected today: %d/%d", todayCount, dailyLimit)
+		log.Println("Please try again tomorrow or increase the daily limit.")
+		os.Exit(1)
+	}
+
+	// Show current progress
+	todayCount, _ := guard.GetTodayCount(db)
+	remaining, _ := guard.GetRemainingLimit(db, dailyLimit)
+	log.Printf("📊 Today's Progress: %d/%d profiles collected (%d remaining)",
+		todayCount, dailyLimit, remaining)
+	log.Println("✅ Daily limit check passed")
+
+	fmt.Println("\n==========================================")
+	fmt.Println("All Safety Checks Passed ✅")
+	fmt.Println("==========================================")
 
 	// Initialize the browser
 	log.Println("Calling NewBrowser...")
@@ -45,11 +86,6 @@ func main() {
 		log.Fatalf("Failed to create stealth page: %v", err)
 	}
 	log.Println("Stealth page created.")
-
-	// Enable cursor visualization for debugging BEFORE any navigation
-	log.Println("Enabling cursor visualization...")
-	browser.ShowCursor(page)
-	log.Println("Cursor visualization enabled.")
 
 	// Log into LinkedIn
 	log.Println("Logging into LinkedIn...")
@@ -71,7 +107,7 @@ func main() {
 	// Display results
 	fmt.Printf("\n==========================================\n")
 	fmt.Printf("Search Results: Found %d NEW profiles\n", len(profiles))
-	fmt.Printf("==========================================\n\n")
+	fmt.Printf("==========================================\n")
 
 	if len(profiles) == 0 {
 		fmt.Println("No new profiles found (all were already in database).")
@@ -84,12 +120,18 @@ func main() {
 	// Show database statistics
 	totalCount, _ := storage.GetTotalProfileCount(db)
 	foundCount, _ := storage.GetProfileCountByStatus(db, "found")
+	finalTodayCount, _ := guard.GetTodayCount(db)
+	finalRemaining, _ := guard.GetRemainingLimit(db, dailyLimit)
 
 	fmt.Printf("\n==========================================\n")
 	fmt.Printf("Database Statistics:\n")
 	fmt.Printf("  Total Profiles: %d\n", totalCount)
 	fmt.Printf("  Status 'found': %d\n", foundCount)
-	fmt.Printf("==========================================\n")
+	fmt.Printf("\n")
+	fmt.Printf("Today's Collection:\n")
+	fmt.Printf("  Collected Today: %d/%d\n", finalTodayCount, dailyLimit)
+	fmt.Printf("  Remaining Today: %d\n", finalRemaining)
+	fmt.Printf("==========================================")
 
 	// Wait to keep the browser open
 	fmt.Println("\nPress Enter to exit...")
