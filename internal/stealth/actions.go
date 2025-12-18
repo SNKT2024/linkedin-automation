@@ -8,10 +8,20 @@ import (
 	"github.com/go-rod/rod"
 )
 
-// RandomSleep sleeps for a random duration between min and max milliseconds.
+// RandomSleep sleeps for a random duration between min and max milliseconds
 func RandomSleep(min, max int) {
 	duration := time.Duration(rand.Intn(max-min)+min) * time.Millisecond
 	time.Sleep(duration)
+}
+
+// RandomInt generates a random integer between 0 and max (exclusive)
+func RandomInt(max int) int {
+	return rand.Intn(max)
+}
+
+// RandomFloat generates a random float64 between 0.0 and 1.0
+func RandomFloat() float64 {
+	return rand.Float64()
 }
 
 // HumanType simulates realistic human-like typing into an input element.

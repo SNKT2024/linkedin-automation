@@ -18,7 +18,7 @@ import (
 // Now uses NaturalScroll with physics-based wheel movement and RandomWander for mouse jitter.
 func RandomScroll(page *rod.Page) {
 	// Number of scroll actions (4-7 times for natural behavior)
-	scrollCount := 4 + rand.Intn(4)
+	scrollCount := 2 + rand.Intn(2)
 	log.Printf("Starting natural scroll sequence (%d scrolls)...", scrollCount)
 
 	for i := 0; i < scrollCount; i++ {
@@ -26,7 +26,7 @@ func RandomScroll(page *rod.Page) {
 		if rand.Float64() < 0.3 {
 			scrollUpAmount := 100 + rand.Intn(200) // 100-300 pixels up
 			log.Printf("Scroll %d/%d: Scrolling UP %d pixels (re-reading)", i+1, scrollCount, scrollUpAmount)
-			stealth.NaturalScroll(page, -scrollUpAmount) // Use physics-based scroll
+			stealth.NaturalScroll(page, -scrollUpAmount) // Negative for upward scroll
 			stealth.RandomSleep(1000, 2000)              // Longer pause while re-reading
 		}
 
@@ -35,9 +35,9 @@ func RandomScroll(page *rod.Page) {
 		log.Printf("Scroll %d/%d: Scrolling DOWN %d pixels", i+1, scrollCount, scrollAmount)
 		stealth.NaturalScroll(page, scrollAmount) // Use physics-based scroll
 
-		// 40% chance to wander mouse while scrolling (checking content)
-		if rand.Float64() < 0.4 {
-			log.Println("Mouse wandering while reading...")
+		// 30% chance to wander mouse while scrolling (idle movement)
+		if rand.Float64() < 0.3 {
+			log.Println("Mouse wandering while reading (idle movement)...")
 			stealth.RandomWander(page)
 		}
 
@@ -46,9 +46,9 @@ func RandomScroll(page *rod.Page) {
 		log.Printf("Reading for %dms...", readingTime)
 		stealth.RandomSleep(readingTime, readingTime+500)
 
-		// Additional 20% chance for a second wander (user getting distracted)
-		if rand.Float64() < 0.2 {
-			log.Println("Additional mouse movement (distracted reading)...")
+		// Additional 30% chance for movement after reading (checking content)
+		if rand.Float64() < 0.3 {
+			log.Println("Additional mouse movement (checking content)...")
 			stealth.RandomWander(page)
 		}
 	}
@@ -108,7 +108,7 @@ func humanTypeWithMistakes(element *rod.Element, text string) {
 
 // SearchPeople searches for people on LinkedIn by keyword and returns their profile URLs.
 // It handles pagination and checks the database to avoid duplicates.
-func SearchPeople(page *rod.Page, db *sql.DB, keyword string) ([]string, error) {
+func SearchPeople(page *rod.Page, db *sql.DB, keyword string, maxPages int) ([]string, error) {
 	log.Printf("Searching for people with keyword: '%s'", keyword)
 
 	// Check if already on feed, if not navigate there
@@ -224,7 +224,6 @@ func SearchPeople(page *rod.Page, db *sql.DB, keyword string) ([]string, error) 
 
 	// Initialize results slice
 	newProfiles := []string{}
-	maxPages := 3 // Limit to 3 pages for safety
 
 	// Pagination loop
 	for pageNum := 1; pageNum <= maxPages; pageNum++ {
@@ -302,7 +301,7 @@ func SearchPeople(page *rod.Page, db *sql.DB, keyword string) ([]string, error) 
 			}
 			pageURLs[href] = true
 
-			// Check database for duplicates - IsProfileVisited returns bool only
+			// Check database for duplicates
 			if storage.IsProfileVisited(db, href) {
 				log.Printf("⏭️  Skipping duplicate: %s", href)
 				pageSkipCount++
@@ -314,7 +313,7 @@ func SearchPeople(page *rod.Page, db *sql.DB, keyword string) ([]string, error) 
 			newProfiles = append(newProfiles, href)
 			pageNewCount++
 
-			// Add to database - AddProfile takes (db, url) only
+			// Add to database
 			if err := storage.AddProfile(db, href); err != nil {
 				log.Printf("⚠️ Failed to save profile to database: %v", err)
 			}

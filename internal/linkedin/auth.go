@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SNKT2024/linkedin-automation/internal/config"
 	"github.com/SNKT2024/linkedin-automation/internal/stealth"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
@@ -16,7 +17,12 @@ import (
 const cookiesFile = "cookies.json"
 
 // Login handles LinkedIn authentication, using cookies if available or logging in manually.
-func Login(browser *rod.Browser, page *rod.Page) error {
+// Now accepts Config struct instead of reading from environment directly.
+func Login(browser *rod.Browser, page *rod.Page, cfg *config.Config) error {
+	// Get credentials from config
+	email := cfg.Email
+	password := cfg.Password
+
 	// Attempt to load cookies from cookies.json
 	if err := loadCookies(browser); err == nil {
 		log.Println("Cookies loaded successfully. Navigating to feed...")
@@ -92,8 +98,6 @@ func Login(browser *rod.Browser, page *rod.Page) error {
 
 	// Find and fill the username field
 	log.Println("Filling in email...")
-	email := os.Getenv("LINKEDIN_EMAIL")
-	password := os.Getenv("LINKEDIN_PASSWORD")
 
 	// Verify we have the login form
 	err := rod.Try(func() {
