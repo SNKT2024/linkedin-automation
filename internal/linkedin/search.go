@@ -1,15 +1,16 @@
 package linkedin
 
 import (
-	"fmt"
+	"database/sql"
 	"log"
 	"math/rand"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/SNKT2024/linkedin-automation/internal/stealth"
+	"github.com/SNKT2024/linkedin-automation/internal/storage"
 	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/input"
 )
 
 // RandomScroll simulates human-like scrolling behavior with reading pauses.
@@ -41,135 +42,85 @@ func RandomScroll(page *rod.Page) {
 }
 
 // SearchPeople searches for people on LinkedIn by keyword and returns their profile URLs.
-func SearchPeople(page *rod.Page, keyword string) ([]string, error) {
-	log.Printf("Searching for people with keyword: %s", keyword)
+// It handles pagination and checks the database to avoid duplicates.
+func SearchPeople(page *rod.Page, db *sql.DB, keyword string) ([]string, error) {
+	log.Printf("Searching for people with keyword: '%s'", keyword)
 
-	// Simulate thinking before searching
-	log.Println("Pausing before starting search...")
-	stealth.RandomSleep(2000, 4000)
+	// Build search URL for people results
+	searchURL := "https://www.linkedin.com/search/results/people/?keywords=" + url.QueryEscape(keyword)
+	log.Printf("Navigating to: %s", searchURL)
 
-	// Navigate to LinkedIn search page (not directly to results)
-	log.Println("Navigating to LinkedIn homepage...")
-	page.MustNavigate("https://www.linkedin.com")
-	page.MustWaitLoad()
-	stealth.RandomSleep(1500, 2500)
-
-	// Find and click the search bar
-	log.Println("Looking for search bar...")
-	stealth.RandomSleep(800, 1500)
-
-	// Try to find the search input
-	searchInput := page.MustElement("input[placeholder*='Search'], input.search-global-typeahead__input, input[aria-label*='Search']")
-
-	// Move mouse to search bar and click it
-	box := searchInput.MustEval(`() => {
-		const rect = this.getBoundingClientRect();
-		return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-	}`).Val().(map[string]interface{})
-
-	searchX := box["x"].(float64) + box["width"].(float64)/2
-	searchY := box["y"].(float64) + box["height"].(float64)/2
-
-	log.Println("Moving mouse to search bar...")
-	stealth.MoveMouseSmoothly(page, searchX, searchY)
-	stealth.RandomSleep(300, 600)
-
-	log.Println("Clicking search bar...")
-	page.Mouse.MustClick("left")
-	stealth.RandomSleep(500, 1000)
-
-	// Type the search keyword with human-like typing
-	log.Printf("Typing search keyword: %s", keyword)
-	stealth.HumanType(searchInput, keyword)
-	stealth.RandomSleep(800, 1500)
-
-	// Press Enter to search
-	log.Println("Pressing Enter to search...")
-	searchInput.MustType(input.Enter) // Enter key
+	// Navigate to search results
+	page.MustNavigate(searchURL)
 	page.MustWaitLoad()
 	stealth.RandomSleep(2000, 3500)
 
-	// Click on "People" filter if not already filtered
-	log.Println("Looking for People filter...")
-	errPeople := rod.Try(func() {
-		peopleButton := page.Timeout(5 * time.Second).MustElement("button[aria-label*='People'], button:has-text('People')")
+	// Initialize results slice
+	newProfiles := []string{}
+	maxPages := 5 // Limit to 5 pages for safety
 
-		// Check if already on people results
-		currentURL := page.MustInfo().URL
-		if !strings.Contains(currentURL, "/search/results/people/") {
-			log.Println("Clicking People filter...")
+	// Pagination loop
+	for pageNum := 1; pageNum <= maxPages; pageNum++ {
+		log.Printf("\n========== Page %d/%d ==========", pageNum, maxPages)
 
-			// Move mouse to People button
-			buttonBox := peopleButton.MustEval(`() => {
-				const rect = this.getBoundingClientRect();
-				return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-			}`).Val().(map[string]interface{})
+		// Wait for results container with timeout
+		log.Println("Waiting for search results to load...")
+		errResults := rod.Try(func() {
+			page.Timeout(10 * time.Second).MustElement(
+				".reusable-search__result-container, .search-results-container, ul.reusable-search__entity-result-list",
+			)
+		})
 
-			peopleX := buttonBox["x"].(float64) + buttonBox["width"].(float64)/2
-			peopleY := buttonBox["y"].(float64) + buttonBox["height"].(float64)/2
-
-			stealth.MoveMouseSmoothly(page, peopleX, peopleY)
-			stealth.RandomSleep(300, 700)
-
-			peopleButton.MustClick()
-			page.MustWaitLoad()
-			stealth.RandomSleep(2000, 3000)
+		if errResults != nil {
+			log.Printf("⚠️ No search results found or timeout on page %d", pageNum)
+			break
 		}
-	})
-	if errPeople != nil {
-		log.Println("Could not find People filter, assuming already on people results page")
-	}
 
-	// Wait for results to load
-	log.Println("Waiting for search results to load...")
-	stealth.RandomSleep(2000, 3500)
+		// Check if results exist
+		hasResults := page.MustHas(".reusable-search__result-container") ||
+			page.MustHas(".search-results-container") ||
+			page.MustHas("ul.reusable-search__entity-result-list")
 
-	// Wait for results container with timeout
-	errResults := rod.Try(func() {
-		page.Timeout(10 * time.Second).MustElement(".reusable-search__result-container, .search-results-container, ul.reusable-search__entity-result-list")
-	})
-	if errResults != nil {
-		log.Println("No search results found or timeout waiting for results.")
-		return []string{}, fmt.Errorf("search results not found: %w", errResults)
-	}
+		if !hasResults {
+			log.Printf("⚠️ No search results container found on page %d", pageNum)
+			break
+		}
 
-	// Check if results exist
-	hasResults := page.MustHas(".reusable-search__result-container") ||
-		page.MustHas(".search-results-container") ||
-		page.MustHas("ul.reusable-search__entity-result-list")
+		// Perform human-like scrolling to load lazy content
+		log.Println("Scrolling to load lazy-loaded content...")
+		RandomScroll(page)
 
-	if !hasResults {
-		log.Println("No search results found.")
-		return []string{}, nil
-	}
+		// Additional wait to ensure all content is loaded
+		log.Println("Waiting for all content to render...")
+		stealth.RandomSleep(2000, 3500)
 
-	// Perform human-like scrolling to load lazy content
-	log.Println("Performing human-like scrolling to load all results...")
-	RandomScroll(page)
+		// Extract profile URLs
+		log.Println("Extracting profile links...")
+		links := page.MustElements("a[href*='/in/']")
+		log.Printf("Found %d potential profile links", len(links))
 
-	// Additional wait to ensure all lazy-loaded content appears
-	log.Println("Waiting for all content to load...")
-	stealth.RandomSleep(2000, 3500)
+		// Track unique URLs on this page
+		pageURLs := make(map[string]bool)
+		pageNewCount := 0
+		pageSkipCount := 0
 
-	// Extract profile URLs
-	log.Println("Extracting profile URLs...")
-	profileURLs := make(map[string]bool) // Use map to ensure uniqueness
+		for _, link := range links {
+			href := link.MustProperty("href").Str()
 
-	// Find all links in the search results
-	links := page.MustElements("a[href*='/in/']")
-	log.Printf("Found %d potential profile links", len(links))
+			// Validate that it's a profile URL (not company, jobs, etc.)
+			if !strings.Contains(href, "/in/") ||
+				strings.Contains(href, "/search/") ||
+				strings.Contains(href, "/company/") ||
+				strings.Contains(href, "/jobs/") ||
+				strings.Contains(href, "/posts/") {
+				continue
+			}
 
-	for _, link := range links {
-		href := link.MustProperty("href").Str()
-
-		// Validate that it's a profile URL
-		if strings.Contains(href, "/in/") &&
-			!strings.Contains(href, "/search/") &&
-			!strings.Contains(href, "/company/") &&
-			!strings.Contains(href, "/jobs/") {
-
-			// Clean up the URL (remove query parameters)
+			// Clean up the URL (remove query parameters and fragments)
 			if idx := strings.Index(href, "?"); idx != -1 {
+				href = href[:idx]
+			}
+			if idx := strings.Index(href, "#"); idx != -1 {
 				href = href[:idx]
 			}
 
@@ -178,19 +129,87 @@ func SearchPeople(page *rod.Page, keyword string) ([]string, error) {
 				href += "/"
 			}
 
-			// Add to map for deduplication
-			profileURLs[href] = true
+			// Skip if we've already seen this URL on this page
+			if pageURLs[href] {
+				continue
+			}
+			pageURLs[href] = true
+
+			// Check database for duplicates
+			if storage.IsProfileVisited(db, href) {
+				log.Printf("⏭️  Skipping duplicate: %s", href)
+				pageSkipCount++
+				continue
+			}
+
+			// New profile found!
+			log.Printf("✅ New profile: %s", href)
+			newProfiles = append(newProfiles, href)
+			pageNewCount++
+
+			// Add to database
+			if err := storage.AddProfile(db, href); err != nil {
+				log.Printf("⚠️ Failed to save profile to database: %v", err)
+			}
+		}
+
+		log.Printf("Page %d Summary: %d new, %d duplicates, %d total unique on page",
+			pageNum, pageNewCount, pageSkipCount, len(pageURLs))
+
+		// Look for Next button
+		log.Println("Looking for 'Next' button...")
+		hasNext := false
+
+		errNext := rod.Try(func() {
+			// Try multiple selectors for the Next button
+			nextButton := page.Timeout(5 * time.Second).MustElement(
+				`button[aria-label*="Next"], button.artdeco-pagination__button--next`,
+			)
+
+			// Check if button is disabled
+			isDisabled := nextButton.MustProperty("disabled").Bool()
+			if isDisabled {
+				log.Println("Next button is disabled (last page reached)")
+				return
+			}
+
+			// Check if button has 'disabled' class
+			classList := nextButton.MustProperty("className").Str()
+			if strings.Contains(classList, "artdeco-button--disabled") {
+				log.Println("Next button has disabled class (last page reached)")
+				return
+			}
+
+			hasNext = true
+
+			// Scroll to the Next button
+			log.Println("Scrolling to Next button...")
+			nextButton.MustScrollIntoView()
+			stealth.RandomSleep(800, 1500)
+
+			// Use stealth click
+			log.Println("Clicking Next button...")
+			stealth.HumanClick(page, nextButton)
+
+			// Wait for new page to load
+			log.Println("Waiting for next page to load...")
+			page.MustWaitLoad()
+			stealth.RandomSleep(3000, 5000)
+		})
+
+		if errNext != nil || !hasNext {
+			log.Println("No more pages available (Next button not found or disabled)")
+			break
 		}
 	}
 
-	// Convert map to slice
-	uniqueURLs := make([]string, 0, len(profileURLs))
-	for profileURL := range profileURLs {
-		uniqueURLs = append(uniqueURLs, profileURL)
-	}
+	// Final summary
+	log.Printf("\n========================================")
+	log.Printf("✅ Search completed!")
+	log.Printf("📊 Total NEW profiles found: %d", len(newProfiles))
+	log.Printf("========================================\n")
 
-	log.Printf("Extracted %d unique profile URLs", len(uniqueURLs))
-	return uniqueURLs, nil
+	return newProfiles, nil
 }
 
 // ScrollToBottom scrolls to the bottom of the page gradually with human-like behavior.
