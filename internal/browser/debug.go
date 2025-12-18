@@ -9,7 +9,7 @@ import (
 // ShowCursor injects JavaScript to visualize the mouse cursor for debugging purposes.
 // The script persists across page navigations using EvalOnNewDocument.
 func ShowCursor(page *rod.Page) {
-	page.MustEvalOnNewDocument(`() => {
+	cursorScript := `() => {
 		// Wait for body to be available
 		const initCursor = () => {
 			// Check if cursor already exists to prevent duplicates
@@ -30,7 +30,7 @@ func ShowCursor(page *rod.Page) {
 				});
 			}
 			
-			// Create global function to update cursor position
+			// Create global function to update cursor position with trail effect
 			window.updateGhostCursor = (x, y, color) => {
 				const cursor = document.getElementById('ghost-cursor');
 				if (cursor) {
@@ -41,6 +41,19 @@ func ShowCursor(page *rod.Page) {
 						cursor.style.boxShadow = color === 'blue' ? '0 0 10px rgba(0, 0, 255, 0.5)' : '0 0 10px rgba(255, 0, 0, 0.5)';
 					}
 				}
+				
+				// Create trail dot
+				const dot = document.createElement('div');
+				dot.style.cssText = 'position:fixed; z-index:999998; pointer-events:none; width:4px; height:4px; background:red; border-radius:50%; transform: translate(-50%, -50%); left:' + x + 'px; top:' + y + 'px; opacity:0.6;';
+				
+				if (document.body) {
+					document.body.appendChild(dot);
+					
+					// Remove dot after 1 second
+					setTimeout(() => {
+						dot.remove();
+					}, 1000);
+				}
 			};
 		};
 		
@@ -50,7 +63,15 @@ func ShowCursor(page *rod.Page) {
 		} else {
 			initCursor();
 		}
-	}`)
+	}`
+	
+	// Run on new documents (for page navigations)
+	page.MustEvalOnNewDocument(cursorScript)
+	
+	// Also run immediately on the current page
+	page.MustEval(cursorScript)
+	
+	log.Println("Cursor script injected on current page and registered for future pages")
 }
 
 // TestCursor shows the cursor in the center of the page for testing

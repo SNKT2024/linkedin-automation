@@ -44,24 +44,86 @@ func GenerateBezierPath(fromX, fromY, toX, toY float64) []Point {
 }
 
 // MoveMouseSmoothly moves the mouse along a Bezier curve to the target position.
+// Implements human overshoot behavior where the cursor occasionally overshoots
+// the target and then corrects back to the actual position.
 func MoveMouseSmoothly(page *rod.Page, toX, toY float64) {
-	// Start from current position (0, 0) as Rod doesn't track position
-	// We'll generate the path from a reasonable starting point
-	currentX := 0.0
-	currentY := 0.0
+	// Get the real current mouse position
+	pos := page.Mouse.Position()
+	currentX := pos.X
+	currentY := pos.Y
 
-	// Generate the Bezier path
-	path := GenerateBezierPath(currentX, currentY, toX, toY)
+	// 30% chance of triggering overshoot behavior
+	shouldOvershoot := rand.Float64() < 0.3
 
-	// Move the mouse along the path
-	for _, p := range path {
-		page.Mouse.MustMoveTo(p.X, p.Y)		
-		// Update visual cursor position
+	if shouldOvershoot {
+		// Calculate direction vector from current to target
+		dirX := toX - currentX
+		dirY := toY - currentY
+
+		// Normalize the direction vector
+		length := math.Sqrt(dirX*dirX + dirY*dirY)
+		if length > 0 {
+			dirX /= length
+			dirY /= length
+		}
+
+		// Calculate overshoot distance (10-60 pixels past the target)
+		overshootDistance := 10.0 + rand.Float64()*50.0
+
+		// Calculate overshoot position
+		overshootX := toX + dirX*overshootDistance
+		overshootY := toY + dirY*overshootDistance
+
+		// First, move to overshoot position
+		overshootPath := GenerateBezierPath(currentX, currentY, overshootX, overshootY)
+		for _, p := range overshootPath {
+			page.Mouse.MustMoveTo(p.X, p.Y)
+			// Update visual cursor position
+			page.MustEval(`(x, y) => {
+				if (window.updateGhostCursor) {
+					window.updateGhostCursor(x, y, 'red');
+				}
+			}`, p.X, p.Y)
+			time.Sleep(time.Duration(rand.Intn(10)+5) * time.Millisecond)
+		}
+
+		// Small pause at overshoot point (simulating "oops" moment)
+		RandomSleep(50, 150)
+
+		// Then, correct back to the actual target
+		correctionPath := GenerateBezierPath(overshootX, overshootY, toX, toY)
+		for _, p := range correctionPath {
+			page.Mouse.MustMoveTo(p.X, p.Y)
+			// Update visual cursor position
+			page.MustEval(`(x, y) => {
+				if (window.updateGhostCursor) {
+					window.updateGhostCursor(x, y, 'orange');
+				}
+			}`, p.X, p.Y)
+			time.Sleep(time.Duration(rand.Intn(10)+5) * time.Millisecond)
+		}
+
+		// Change cursor back to red after correction
 		page.MustEval(`(x, y) => {
 			if (window.updateGhostCursor) {
 				window.updateGhostCursor(x, y, 'red');
 			}
-		}`, p.X, p.Y)
-				time.Sleep(time.Duration(rand.Intn(10)+5) * time.Millisecond) // Sleep 5-15ms between steps
+		}`, toX, toY)
+
+	} else {
+		// Normal movement without overshoot
+		path := GenerateBezierPath(currentX, currentY, toX, toY)
+
+		// Move the mouse along the path
+		for _, p := range path {
+			page.Mouse.MustMoveTo(p.X, p.Y)
+			// Update visual cursor position
+			page.MustEval(`(x, y) => {
+				if (window.updateGhostCursor) {
+					window.updateGhostCursor(x, y, 'red');
+				}
+			}`, p.X, p.Y)
+			time.Sleep(time.Duration(rand.Intn(10)+5) * time.Millisecond)
+		}
 	}
 }

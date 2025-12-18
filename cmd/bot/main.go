@@ -41,22 +41,36 @@ func main() {
 	browser.ShowCursor(page)
 	log.Println("Cursor visualization enabled.")
 
-	// Navigate to a page first to test cursor
-	page.MustNavigate("https://www.linkedin.com")
-	page.MustWaitLoad()
-
-	// Test cursor visibility
-	browser.TestCursor(page)
-	time.Sleep(2 * time.Second) // Pause so you can see the cursor
-
 	// Log into LinkedIn
 	log.Println("Logging into LinkedIn...")
 	if err := linkedin.Login(b, page); err != nil {
-		log.Fatalf("LinkedIn login failed: %v", err)
+		log.Fatalf("LinkedIn login failed: %v", err)  // ✅ Only exits on ERROR
 	}
-	log.Println("Logged into LinkedIn successfully.")
+	log.Println("Logged into LinkedIn successfully.")  // ✅ This confirms success
+
+	// Start searching for profiles
+	log.Println("Starting Search for 'Software Engineer'...")  // ✅ Guaranteed to run
+	profiles, err := linkedin.SearchPeople(page, "Software Engineer")
+	if err != nil {
+		log.Fatalf("Search failed: %v", err)
+	}
+
+	// Display results
+	fmt.Printf("\n==========================================\n")
+	fmt.Printf("Search Results: Found %d profiles\n", len(profiles))
+	fmt.Printf("==========================================\n\n")
+
+	if len(profiles) == 0 {
+		fmt.Println("No profiles found.")
+	} else {
+		for i, url := range profiles {
+			fmt.Printf("%d. Found Profile: %s\n", i+1, url)
+		}
+	}
 
 	// Wait to keep the browser open
+	fmt.Println("\n==========================================")
 	fmt.Println("Press Enter to exit...")
+	fmt.Println("==========================================")
 	fmt.Scanln()
 }
