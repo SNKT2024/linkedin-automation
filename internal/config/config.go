@@ -32,6 +32,10 @@ type Config struct {
     WorkStart string
     WorkEnd   string
 
+    // Message Templates
+    ConnectMessageTemplate  string
+	FollowupMessageTemplate string
+
     // Execution Defaults
     DefaultMode string
 }
@@ -56,7 +60,6 @@ func Load() (*Config, error) {
 
         // Search Settings with defaults
         SearchKeyword:  getEnvOrDefault("SEARCH_KEYWORD", "Software Engineer"),
-        SearchLocation: getEnvOrDefault("SEARCH_LOCATION", "United States"),
         MaxPages:       getEnvAsInt("MAX_PAGES_TO_SCRAPE", 3),
 
         // Stealth & Human Behavior with defaults
@@ -71,6 +74,10 @@ func Load() (*Config, error) {
         // Working Hours with defaults
         WorkStart: getEnvOrDefault("WORKING_HOURS_START", "09:00"),
         WorkEnd:   getEnvOrDefault("WORKING_HOURS_END", "21:00"),
+
+        // Message and Note Template
+		ConnectMessageTemplate:  getEnvOrDefault("CONNECT_MESSAGE_TEMPLATE", "Hi {firstName}, I noticed your profile and would love to connect!"),
+		FollowupMessageTemplate: getEnvOrDefault("FOLLOW_UP_MESSAGE_TEMPLATE", "Hi {firstName}, thanks for connecting! Great to meet you."),
 
         // Execution Defaults
         DefaultMode: getEnvOrDefault("DEFAULT_MODE", "demo"),

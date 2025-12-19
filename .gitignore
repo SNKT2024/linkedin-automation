@@ -1,0 +1,12 @@
+# Security: Never push credentials
+.env
+cookies.json
+
+# Database: Keep local data local
+*.db
+*.db-shm
+*.db-wal
+
+# OS generated files
+.DS_Store
+Thumbs.db

@@ -2,7 +2,6 @@ package guard
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -17,11 +16,11 @@ import (
 func CheckWorkingHours(cfg *config.Config) error {
 	now := time.Now()
 
-	// Check if it's a weekend
-	weekday := now.Weekday()
-	if weekday == time.Saturday || weekday == time.Sunday {
-		return errors.New("bot cannot run on weekends (Saturday/Sunday)")
-	}
+	// // Check if it's a weekend
+	// weekday := now.Weekday()
+	// if weekday == time.Saturday || weekday == time.Sunday {
+	// 	return errors.New("bot cannot run on weekends (Saturday/Sunday)")
+	// }
 
 	// Parse WorkStart time (format: "HH:MM")
 	startParts := strings.Split(cfg.WorkStart, ":")
@@ -139,4 +138,25 @@ func GetRemainingLimit(db *sql.DB, dailyLimit int) (int, error) {
 	}
 
 	return remaining, nil
+}
+
+// GetDailyInviteCount returns the number of invites sent today.
+// It counts profiles with status 'invited' that were updated today.
+func GetDailyInviteCount(db *sql.DB) (int, error) {
+	now := time.Now()
+	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	query := `
+        SELECT COUNT(*) 
+        FROM profiles 
+        WHERE status = 'invited' AND updated_at >= ?
+    `
+
+	var count int
+	err := db.QueryRow(query, startOfDay).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count daily invites: %w", err)
+	}
+
+	return count, nil
 }

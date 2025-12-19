@@ -33,11 +33,9 @@ func main() {
 	log.Println("✅ Configuration loaded successfully")
 	log.Printf("   Email: %s", cfg.Email)
 	log.Printf("   Search Keyword: %s", cfg.SearchKeyword)
-	log.Printf("   Max Pages: %d", cfg.MaxPages)
 	log.Printf("   Daily Invite Limit: %d", cfg.InviteLimit)
 	log.Printf("   Daily Search Limit: %d", cfg.SearchLimit)
 	log.Printf("   Working Hours: %s - %s", cfg.WorkStart, cfg.WorkEnd)
-	log.Printf("   Default Mode: %s", cfg.DefaultMode)
 
 	// ==========================================
 	// COMMAND-LINE FLAGS
@@ -54,8 +52,7 @@ func main() {
 	log.Println("Performing Safety Checks...")
 	log.Println("==========================================")
 
-	// Check working hours (Mon-Fri, configured hours)
-	log.Println("Checking working hours...")
+	// 1. Check working hours
 	if err := guard.CheckWorkingHours(cfg); err != nil {
 		log.Printf("⚠️ SAFETY STOP: %v", err)
 		log.Println("The bot will not run outside of configured working hours.")
@@ -74,28 +71,6 @@ func main() {
 	defer storage.CloseDB(db)
 	log.Println("✅ Database initialized successfully")
 
-	// Show current database stats
-	stats, _ := storage.GetStats(db)
-	log.Printf("📊 Current Database Status:")
-	log.Printf("   Total Profiles: %d", stats.Total)
-	log.Printf("   Found (ready): %d", stats.Found)
-	log.Printf("   Invited: %d", stats.Invited)
-	log.Printf("   Connected: %d", stats.Connected)
-
-	// Check daily limits
-	todayCount, _ := guard.GetTodayCount(db)
-	remaining, _ := guard.GetRemainingLimit(db, cfg.SearchLimit)
-	log.Printf("\n📅 Today's Activity:")
-	log.Printf("   Collected Today: %d/%d", todayCount, cfg.SearchLimit)
-	log.Printf("   Remaining: %d", remaining)
-
-	if todayCount >= cfg.SearchLimit {
-		log.Printf("⚠️ Daily search limit reached (%d/%d)", todayCount, cfg.SearchLimit)
-		log.Println("Continuing with existing profiles only...")
-	}
-
-	log.Println("\n✅ All safety checks passed!")
-
 	// ==========================================
 	// BROWSER INITIALIZATION
 	// ==========================================
@@ -103,20 +78,17 @@ func main() {
 	log.Println("Initializing Browser...")
 	log.Println("==========================================")
 
-	log.Println("Creating browser instance...")
 	b, err := browser.NewBrowser()
 	if err != nil {
 		log.Fatalf("❌ Failed to initialize browser: %v", err)
 	}
 	defer b.MustClose()
-	log.Println("✅ Browser created successfully")
 
-	log.Println("Creating stealth page...")
 	page, err := browser.NewStealthPage(b)
 	if err != nil {
 		log.Fatalf("❌ Failed to create stealth page: %v", err)
 	}
-	log.Println("✅ Stealth page created")
+	log.Println("✅ Browser & Stealth Page Ready")
 
 	// ==========================================
 	// LINKEDIN AUTHENTICATION
@@ -148,35 +120,17 @@ func main() {
 		runDemoMode(page, db, cfg)
 
 	case "login":
-		log.Println("🔵 Execution Mode: LOGIN ONLY")
-		log.Println("✅ Login successful. Browser will remain open for 5 minutes for manual inspection.")
-		log.Println("💡 You can manually browse LinkedIn to build cookies/history.")
-		log.Println("📍 This mode is useful for:")
-		log.Println("   • Testing authentication")
-		log.Println("   • Building cookie cache")
-		log.Println("   • Manual profile exploration")
-		log.Println("   • Debugging browser behavior")
-
-		log.Println("\n⏳ Keeping browser open for 2 minutes...")
+		log.Println("🔵 Login Mode: Keeping browser open for manual inspection.")
 		for i := 2; i > 0; i-- {
 			log.Printf("   Time remaining: %d minute(s)...", i)
 			time.Sleep(1 * time.Minute)
 		}
 
-		log.Println("✅ Login mode complete. Closing browser...")
-
 	case "message":
-		log.Println("🟠 Execution Mode: MESSAGE")
-		log.Println("⚠️ Messaging logic is not yet implemented. Please wait for the next update.")
-		log.Println("📋 Planned features:")
-		log.Println("   • Fetch profiles with status 'connected'")
-		log.Println("   • Send personalized messages to connections")
-		log.Println("   • Track message status in database")
-		log.Println("   • Respect daily messaging limits")
-		log.Println("\n💡 For now, you can use 'search' and 'connect' modes to build your network.")
+		runMessageMode(page,db,cfg)
 
 	default:
-		log.Fatalf("❌ Invalid mode: %s. Valid modes: search, connect, demo, login, message", *mode)
+		log.Fatalf("❌ Invalid mode: %s", *mode)
 	}
 
 	// ==========================================
@@ -184,178 +138,148 @@ func main() {
 	// ==========================================
 	showFinalStatistics(db, cfg)
 
-	// Keep browser open
 	fmt.Println("\n✅ Execution complete. Press Enter to exit...")
 	fmt.Scanln()
 }
 
-// runSearchMode executes the search workflow
+// runSearchMode executes the search workflow with rate limiting
 func runSearchMode(page *rod.Page, db *sql.DB, cfg *config.Config) {
-	log.Println("🔍 Testing Search Mode...")
-	log.Printf("   Keyword: %s", cfg.SearchKeyword)
-	log.Printf("   Max Pages: %d", cfg.MaxPages)
+	log.Println("🔍 Starting Search Mode...")
 
+	// 1. RATE LIMIT CHECK
+	todayCount, err := guard.GetTodayCount(db)
+	if err != nil {
+		log.Printf("⚠️ Error checking search limits: %v", err)
+		return
+	}
+
+	log.Printf("📊 Search Limit Status: %d/%d profiles collected today", todayCount, cfg.SearchLimit)
+
+	if todayCount >= cfg.SearchLimit {
+		log.Println("🛑 Daily search limit reached. Skipping search execution.")
+		return
+	}
+
+	// Calculate allowable pages (optional optimization)
+	// We run the search anyway, relying on the loop to stop or just run max pages 
+	// since we want to fill the buffer.
+	
 	newProfiles, err := linkedin.SearchPeople(page, db, cfg.SearchKeyword, cfg.MaxPages)
 	if err != nil {
 		log.Printf("❌ Search failed: %v", err)
 		return
 	}
 
-	log.Printf("\n✅ Search Test Complete!")
-	log.Printf("📊 Found %d NEW profiles", len(newProfiles))
-	log.Println("💾 Check database for profiles with status 'found'")
-
-	if len(newProfiles) > 0 {
-		log.Println("\nSample of new profiles:")
-		for i, url := range newProfiles {
-			if i >= 5 {
-				log.Printf("   ... and %d more", len(newProfiles)-5)
-				break
-			}
-			log.Printf("   %d. %s", i+1, url)
-		}
-	}
+	log.Printf("\n✅ Search Complete. Found %d NEW profiles.", len(newProfiles))
 }
 
-// runConnectMode executes the connection workflow
+// runConnectMode executes the connection workflow with strict rate limiting & personalization
 func runConnectMode(page *rod.Page, db *sql.DB, cfg *config.Config) {
 	log.Println("🤝 Starting Connect Mode...")
 
-	// Fetch profiles to invite
-	log.Printf("Fetching up to %d profiles to invite...", cfg.InviteLimit)
-	profiles, err := storage.GetProfilesToInvite(db, cfg.InviteLimit)
+	// 1. RATE LIMIT CHECK
+	inviteCount, err := guard.GetDailyInviteCount(db)
+	if err != nil {
+		log.Printf("⚠️ Error checking invite limits: %v", err)
+		return
+	}
+
+	remaining := cfg.InviteLimit - inviteCount
+	log.Printf("📊 Invite Limit Status: %d/%d sent today (Remaining: %d)", inviteCount, cfg.InviteLimit, remaining)
+
+	if remaining <= 0 {
+		log.Println("🛑 Daily invite limit reached. Stopping Connect Mode.")
+		return
+	}
+
+	// 2. Fetch profiles
+	log.Printf("Fetching up to %d profiles to invite...", remaining)
+	profiles, err := storage.GetProfilesToInvite(db, remaining)
 	if err != nil {
 		log.Printf("❌ Failed to fetch profiles: %v", err)
 		return
 	}
 
 	if len(profiles) == 0 {
-		log.Println("⚠️ No profiles available for connection")
-		log.Println("💡 Run in 'search' mode first to collect profiles")
+		log.Println("⚠️ No profiles available for connection (Run 'search' mode first)")
 		return
 	}
 
-	log.Printf("Found %d profiles ready for connection\n", len(profiles))
+	log.Printf("Found %d profiles ready for connection", len(profiles))
 
-	// Connection statistics
-	var (
-		successCount     = 0
-		pendingCount     = 0
-		alreadyConnected = 0
-		premiumSkipped   = 0
-		failedCount      = 0
-	)
+	// 3. Process Connections
+	var successCount = 0
 
-	// Process each profile
 	for i, profileURL := range profiles {
 		log.Printf("\n========== Profile %d/%d ==========", i+1, len(profiles))
-		log.Printf("Processing: %s", profileURL)
-
-		// Navigate to profile
-		log.Println("Navigating to profile...")
+		
+		// Navigate first to get the name
 		page.MustNavigate(profileURL)
 		page.MustWaitLoad()
-		stealth.RandomSleep(2000, 4000)
+		stealth.RandomSleep(3000, 5000)
 
-		// Extract first name from profile
+		// Extract First Name for Personalization
 		firstName := "there" // Default fallback
-		err := rod.Try(func() {
-			// Find the h1 element containing the name
-			nameElement := page.Timeout(5 * time.Second).MustElement("h1")
-			fullName := strings.TrimSpace(nameElement.MustText())
-
-			// Split by space and take first name
-			nameParts := strings.Fields(fullName)
-			if len(nameParts) > 0 {
-				firstName = nameParts[0]
-				log.Printf("Extracted name: %s (full: %s)", firstName, fullName)
+		if nameEl, err := page.Timeout(2 * time.Second).Element("h1"); err == nil {
+			text := nameEl.MustText()
+			parts := strings.Split(text, " ")
+			if len(parts) > 0 {
+				firstName = parts[0]
 			}
-		})
-
-		if err != nil {
-			log.Printf("⚠️ Could not extract name, using default: %s", firstName)
 		}
 
-		// Compose personalized message (for future use)
-		message := fmt.Sprintf("Hi %s, I came across your profile and would love to connect!", firstName)
-		log.Printf("Composed message: %s", message)
+		// Create Personalized Message
+		message := strings.ReplaceAll(cfg.ConnectMessageTemplate,"{firstName}",firstName)
 
-		// Attempt to connect
-		status, connErr := linkedin.ConnectWithProfile(page, profileURL)
+		// Attempt to connect (Passing the message now!)
+		status, connErr := linkedin.ConnectWithProfile(page, profileURL, message)
 
-		// Handle the result
+		// Update Database based on result
 		switch status {
 		case "clicked":
-			log.Println("✅ Connection request sent successfully")
+			log.Println("✅ Connection request sent")
 			successCount++
 			storage.UpdateStatus(db, profileURL, "invited")
 
+			// === ☕ NEW: COFFEE BREAK LOGIC ===
+            // After every 3 successful invites, take a long break (1-3 minutes)
+            if successCount > 0 && successCount%3 == 0 {
+                breakTime := 60000 + rand.Intn(120000) // 60s - 180s
+                log.Printf("☕ Taking a coffee break for %d seconds (Stealth Protocol)...", breakTime/1000)
+                time.Sleep(time.Duration(breakTime) * time.Millisecond)
+                continue // Skip the normal safety delay since we just took a long break
+            }
+            // ==================================
 		case "skipped_pending":
-			log.Println("⏭️  Connection already pending")
-			pendingCount++
 			storage.UpdateStatus(db, profileURL, "pending")
-
 		case "skipped_connected":
-			log.Println("⏭️  Already connected")
-			alreadyConnected++
 			storage.UpdateStatus(db, profileURL, "already_connected")
-
 		case "skipped_premium":
-			log.Println("⏭️  Premium profile - InMail required")
-			premiumSkipped++
 			storage.UpdateStatus(db, profileURL, "premium_only")
-
 		case "failed":
-			log.Printf("❌ Failed to connect: %v", connErr)
-			failedCount++
-			// Keep status as 'found' so it can be retried
-
-		default:
-			log.Printf("⚠️ Unknown status: %s", status)
-			failedCount++
+			log.Printf("❌ Failed: %v", connErr)
 		}
 
-		// Critical safety delay between connection attempts
+		// Safety Delay
 		if i < len(profiles)-1 {
-			waitTime := 15000 + rand.Intn(15000) // 15-30 seconds
-			log.Printf("⏳ Safety delay: waiting %d ms before next connection...", waitTime)
+			waitTime := 15000 + rand.Intn(15000) // 15-30s delay
+			log.Printf("⏳ Safety delay: %ds...", waitTime/1000)
 			stealth.RandomSleep(waitTime, waitTime+1000)
 		}
 	}
 
-	// Connection summary
-	log.Println("\n==========================================")
-	log.Println("Connect Mode Complete")
-	log.Println("==========================================")
-	log.Printf("✅ Connections Sent:     %d\n", successCount)
-	log.Printf("⏭️  Already Pending:      %d\n", pendingCount)
-	log.Printf("⏭️  Already Connected:    %d\n", alreadyConnected)
-	log.Printf("💎 Premium/InMail Only:  %d\n", premiumSkipped)
-	log.Printf("❌ Failed (will retry):  %d\n", failedCount)
-	log.Printf("📊 Total Processed:      %d\n", len(profiles))
-	log.Println("==========================================")
+	log.Printf("\n✅ Connect Mode Complete. Sent %d new invites.", successCount)
 }
 
-// runDemoMode executes the demo workflow (search → wait → connect)
+// runDemoMode executes search then connect
 func runDemoMode(page *rod.Page, db *sql.DB, cfg *config.Config) {
 	log.Println("🎯 Running Demo Sequence...")
-	log.Println("This will execute: Search → Wait 10s → Connect")
-
-	// Phase 1: Search
-	log.Println("\n📍 Phase 1: Search")
 	runSearchMode(page, db, cfg)
+	
+	log.Println("\n⏳ Waiting 10 seconds before connecting...")
+	time.Sleep(10 * time.Second)
 
-	// Phase 2: Wait
-	log.Println("\n📍 Phase 2: Waiting 10 seconds...")
-	for i := 10; i > 0; i-- {
-		log.Printf("   %d...", i)
-		time.Sleep(1 * time.Second)
-	}
-
-	// Phase 3: Connect
-	log.Println("\n📍 Phase 3: Connect")
 	runConnectMode(page, db, cfg)
-
 	log.Println("\n✅ Demo sequence completed!")
 }
 
@@ -365,28 +289,36 @@ func showFinalStatistics(db *sql.DB, cfg *config.Config) {
 	log.Println("FINAL DATABASE STATISTICS")
 	log.Println("==========================================")
 
-	stats, err := storage.GetStats(db)
-	if err != nil {
-		log.Printf("⚠️ Could not retrieve statistics: %v", err)
-		return
-	}
-
+	stats, _ := storage.GetStats(db)
 	log.Printf("Total Profiles:          %d", stats.Total)
 	log.Printf("├─ Found (ready):        %d", stats.Found)
 	log.Printf("├─ Invited (sent):       %d", stats.Invited)
 	log.Printf("├─ Connected:            %d", stats.Connected)
-	log.Printf("├─ Messaged:             %d", stats.Messaged)
-	log.Printf("├─ Pending:              %d", stats.Pending)
-	log.Printf("├─ Premium Only:         %d", stats.Premium)
-	log.Printf("└─ Failed (retry):       %d", stats.Failed)
-
-	// Today's activity
-	todayCount, _ := guard.GetTodayCount(db)
-	remaining, _ := guard.GetRemainingLimit(db, cfg.SearchLimit)
-
-	log.Printf("\nToday's Activity:")
-	log.Printf("├─ Collected Today:      %d/%d", todayCount, cfg.SearchLimit)
-	log.Printf("└─ Remaining Today:      %d", remaining)
-
+	
+	// Daily Stats
+	todaySearch, _ := guard.GetTodayCount(db)
+	todayInvites, _ := guard.GetDailyInviteCount(db)
+	
+	log.Println("\n📅 Today's Performance:")
+	log.Printf("├─ Profiles Collected:   %d / %d", todaySearch, cfg.SearchLimit)
+	log.Printf("└─ Invites Sent:         %d / %d", todayInvites, cfg.InviteLimit)
 	log.Println("==========================================")
+}
+
+
+// runMessageMode executes the messaging workflow
+func runMessageMode(page *rod.Page, db *sql.DB, cfg *config.Config) {
+	log.Println("📨 Starting Message Mode...")
+
+	//  DYNAMIC TEMPLATE: Load from Config
+	template := cfg.FollowupMessageTemplate
+
+	// Set a safe batch limit (e.g., 10 messages per run)
+	// checks 'invited' profiles to see if they accepted
+	err := linkedin.SendMessages(page, db, template, 10)
+	if err != nil {
+		log.Printf("❌ Message mode error: %v", err)
+	}
+
+	log.Println("✅ Message Mode Complete.")
 }

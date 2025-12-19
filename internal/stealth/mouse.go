@@ -14,32 +14,27 @@ type Point struct {
 	Y float64
 }
 
-// GenerateBezierPath calculates a quadratic Bezier curve with random control points and noise.
+// GenerateBezierPath calculates a quadratic Bezier curve with random control points.
 func GenerateBezierPath(fromX, fromY, toX, toY float64) []Point {
-	// Random control point to create an arc
 	controlX := (fromX + toX) / 2
 	controlY := (fromY + toY) / 2
-	controlX += rand.Float64()*100 - 50 // Add random noise to control point
+	controlX += rand.Float64()*100 - 50
 	controlY += rand.Float64()*100 - 50
 
-	// Number of steps in the curve
 	steps := 50
 	path := make([]Point, steps)
 
 	for i := 0; i < steps; i++ {
-		t := float64(i) / float64(steps-1) // Parameter t ranges from 0 to 1
-
-		// Quadratic Bezier formula: B(t) = (1-t)^2 * P0 + 2(1-t)t * P1 + t^2 * P2
+		t := float64(i) / float64(steps-1)
 		x := math.Pow(1-t, 2)*fromX + 2*(1-t)*t*controlX + math.Pow(t, 2)*toX
 		y := math.Pow(1-t, 2)*fromY + 2*(1-t)*t*controlY + math.Pow(t, 2)*toY
-
-		// Add slight random noise to each point
+		
+		// Add noise
 		x += rand.Float64()*2 - 1
 		y += rand.Float64()*2 - 1
-
+		
 		path[i] = Point{X: x, Y: y}
 	}
-
 	return path
 }
 
@@ -105,34 +100,36 @@ func MoveMouseSmoothly(page *rod.Page, toX, toY float64) {
 // NaturalScroll simulates natural mouse wheel scrolling with inertia and acceleration/deceleration.
 // Uses page.Mouse.Scroll instead of window.scrollBy to mimic physical mouse wheel rotation.
 func NaturalScroll(page *rod.Page, deltaY int) {
+	// 1. CRITICAL FIX: Move Mouse to Center
+	// This ensures we are scrolling the 'body' and not stuck hovering on the fixed header/nav bar.
+	page.Mouse.MustMoveTo(500, 500)
+
 	// Determine scroll direction
 	direction := 1.0
 	if deltaY < 0 {
 		direction = -1.0
-		deltaY = -deltaY // Make positive for calculation
+		deltaY = -deltaY 
 	}
 
-	// Break scrolling into small steps (simulate mouse wheel notches)
-	stepSize := 40 + rand.Intn(20) // 40-60 pixels per step
+	// Break scrolling into small steps
+	stepSize := 40 + rand.Intn(20) 
 	numSteps := deltaY / stepSize
 	if numSteps < 1 {
 		numSteps = 1
 	}
 
-	// Generate delays with inertia (faster at start, slower at end)
+	// Generate delays with inertia
 	delays := generateInertiaDelays(numSteps)
 
-	// Scroll in steps with delays
+	// Scroll in steps
 	for i := 0; i < numSteps; i++ {
-		// Scroll one step
 		scrollAmount := direction * float64(stepSize)
 		page.Mouse.MustScroll(0, scrollAmount)
-
-		// Wait before next step
 		time.Sleep(time.Duration(delays[i]) * time.Millisecond)
 	}
 }
 
+// generateInertiaDelays creates a delay pattern with acceleration and deceleration.
 // generateInertiaDelays creates a delay pattern with acceleration and deceleration.
 func generateInertiaDelays(numSteps int) []int {
 	delays := make([]int, numSteps)
@@ -144,27 +141,23 @@ func generateInertiaDelays(numSteps int) []int {
 
 	idx := 0
 
-	// Acceleration phase: delays decrease (speed increases)
+	// Acceleration phase
 	for i := 0; i < accelPhase; i++ {
-		delays[idx] = 80 - i*15 // Start slow, get faster
-		if delays[idx] < 20 {
-			delays[idx] = 20
-		}
+		delays[idx] = 80 - i*15 
+		if delays[idx] < 20 { delays[idx] = 20 }
 		idx++
 	}
 
-	// Constant phase: consistent speed
+	// Constant phase
 	for i := 0; i < constPhase; i++ {
-		delays[idx] = 20 + rand.Intn(10) // 20-30ms
+		delays[idx] = 20 + rand.Intn(10)
 		idx++
 	}
 
-	// Deceleration phase: delays increase (speed decreases)
+	// Deceleration phase
 	for i := 0; i < decelPhase; i++ {
-		delays[idx] = 20 + i*15 // Slow down
-		if delays[idx] > 80 {
-			delays[idx] = 80
-		}
+		delays[idx] = 20 + i*15
+		if delays[idx] > 80 { delays[idx] = 80 }
 		idx++
 	}
 
