@@ -17,8 +17,17 @@ import (
 func SearchPeople(page *rod.Page, db *sql.DB, keyword string, maxPages int) ([]string, error) {
 	log.Printf("🔍 Searching for people with keyword: '%s'", keyword)
 
-	// 1. Navigation
+	// === CRITICAL FIX: Wait for Feed to Settle ===
+	// This prevents the bot from checking for the search bar 
+	// while the page is still white/loading after login.
+	log.Println("   ⏳ Waiting for feed to render...")
+	page.MustWaitLoad()
+	stealth.RandomSleep(3000, 5000)
+	// =============================================
+
+	// 1. Navigation (Safety check)
 	if !strings.Contains(page.MustInfo().URL, "/feed/") {
+		log.Println("   🔄 Navigating to Feed...")
 		page.MustNavigate("https://www.linkedin.com/feed/")
 		page.MustWaitLoad()
 		stealth.RandomSleep(3000, 5000)
@@ -26,17 +35,30 @@ func SearchPeople(page *rod.Page, db *sql.DB, keyword string, maxPages int) ([]s
 
 	// 2. Search Bar (Safe Find Pattern)
 	log.Println("🔍 Looking for search bar...")
-	searchSelector := "input.search-global-typeahead__input, input[placeholder*='Search']"
 	
-	// Check existence with timeout (prevents hang)
-	found, _, _ := page.Timeout(10 * time.Second).Has(searchSelector)
+	// We check for multiple possible selectors to be robust
+	searchSelectors := []string{"input.search-global-typeahead__input", "input[placeholder*='Search']"}
+	var searchInput *rod.Element
+	var found bool
+
+	// Try finding it for up to 10 seconds
+	for i := 0; i < 5; i++ {
+		for _, sel := range searchSelectors {
+			if has, _, _ := page.Has(sel); has {
+				searchInput = page.MustElement(sel)
+				found = true
+				break
+			}
+		}
+		if found { break }
+		time.Sleep(2 * time.Second)
+	}
+
 	if !found {
 		return nil, fmt.Errorf("could not find search bar within 10s")
 	}
 
-	// Grab element with original page context (prevents panic during typing)
-	searchInput := page.MustElement(searchSelector)
-
+	// Safe Typing Logic
 	searchInput.MustClick()
 	stealth.RandomSleep(500, 1000)
 	humanTypeWithMistakes(searchInput, keyword)
@@ -47,13 +69,19 @@ func SearchPeople(page *rod.Page, db *sql.DB, keyword string, maxPages int) ([]s
 	stealth.RandomSleep(4000, 6000)
 
 	// 3. People Filter
+	// Only click if we aren't already on the people tab
 	if !strings.Contains(page.MustInfo().URL, "/people/") {
 		log.Println("👥 Checking 'People' filter...")
+		
+		// Try finding the button by text "People"
 		if found, _, _ := page.Timeout(5 * time.Second).HasR("button", "People"); found {
-			// Safe click
-			page.MustElementR("button", "People").MustClick()
-			page.MustWaitLoad()
-			stealth.RandomSleep(3000, 5000)
+			btn := page.MustElementR("button", "People")
+			// Only click if not already active (pressed)
+			if pressed, _ := btn.Attribute("aria-pressed"); pressed == nil || *pressed != "true" {
+				btn.MustClick()
+				page.MustWaitLoad()
+				stealth.RandomSleep(3000, 5000)
+			}
 		}
 	}
 
@@ -96,7 +124,9 @@ func SearchPeople(page *rod.Page, db *sql.DB, keyword string, maxPages int) ([]s
 				if idx := strings.Index(urlStr, "?"); idx != -1 { urlStr = urlStr[:idx] }
 				if uniqueOnPage[urlStr] { continue }
 				uniqueOnPage[urlStr] = true
-				if strings.Contains(urlStr, "sanket-kumbhar") { continue }
+				
+				// Skip yourself if needed (optional)
+				// if strings.Contains(urlStr, "sanket-kumbhar") { continue }
 
 				added, _ := storage.AddProfile(db, urlStr)
 				if added {
@@ -112,7 +142,6 @@ func SearchPeople(page *rod.Page, db *sql.DB, keyword string, maxPages int) ([]s
 			log.Println("➡️ Looking for 'Next' button...")
 			
 			// Try Primary Selector (Desktop)
-			// Check with timeout, Grab without
 			if found, _, _ := page.Timeout(3 * time.Second).Has(`button[aria-label="Next"]`); found {
 				nextBtn := page.MustElement(`button[aria-label="Next"]`)
 				clickNext(page, nextBtn)
