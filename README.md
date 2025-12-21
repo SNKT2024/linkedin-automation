@@ -134,7 +134,7 @@ go run cmd/bot/main.go --mode=message
 
 A full walkthrough demonstrating setup, configuration, execution, and core features:
 
-**▶️ [Watch the demo video]()**
+**▶️ [Watch the demo video](https://youtu.be/fmX0soZcD3Y)**
 
 The video demonstrates:
 
